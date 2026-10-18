@@ -27,6 +27,7 @@
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        [hidden] { display: none !important; }
         html { scroll-behavior: smooth; }
 
         body {
@@ -1295,6 +1296,14 @@
             object-fit: cover;
         }
 
+        .data-state { grid-column: 1 / -1; width: 100%; text-align: center; padding: 28px 20px; color: rgba(255,255,255,.72); background: var(--dark3); border: 1px solid var(--glass-border); border-radius: 14px; }
+        .data-state.error { color: #fda4af; border-color: rgba(244,63,94,.45); }
+        .data-state.empty { color: rgba(255,255,255,.55); }
+        .admin-auth { margin: 0 0 24px; padding: 18px; border: 1px solid var(--glass-border); border-radius: 14px; background: var(--dark3); }
+        .admin-auth p { color: rgba(255,255,255,.7); font-size: .82rem; margin-bottom: 12px; }
+        .admin-auth button { margin-top: 8px; }
+        .admin-denied { color: #fda4af; padding: 12px 0; }
+
         /* ===== LIGHTBOX ===== */
         .lightbox {
             position: fixed;
@@ -1917,6 +1926,16 @@
             <h3>⚡ PANEL ADMIN</h3>
             <button class="admin-close" id="adminClose">&times;</button>
         </div>
+        <div class="admin-auth">
+            <p id="adminIdentity">Comprobando sesión…</p>
+            <form id="adminLoginForm">
+                <p>Acceso exclusivo para maikoldurand2@gmail.com. Recibirás un enlace mágico de acceso.</p>
+                <button class="btn btn-primary" id="sendMagicLink" type="submit" style="width:100%;justify-content:center;">Enviar enlace mágico</button>
+            </form>
+            <button class="btn btn-outline" id="adminLogoutBtn" type="button" hidden style="width:100%;justify-content:center;">Cerrar sesión</button>
+        </div>
+        <p class="admin-denied" id="adminDenied" hidden>La sesión no tiene autorización de administrador verificada.</p>
+        <div id="adminContent" hidden>
         <div class="admin-tabs">
             <button class="admin-tab active" data-tab="media">📸 Media</button>
             <button class="admin-tab" data-tab="events">📅 Eventos</button>
@@ -1927,7 +1946,7 @@
                 <i class="fas fa-cloud-upload-alt"></i>
                 <p>Arrastra o haz clic para subir</p>
                 <p class="formats">JPG, PNG, MP4, MOV (máx 50MB)</p>
-                <input type="file" id="fileInput" accept="image/*,video/*" style="display: none;">
+                <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/webm" style="display: none;">
             </div>
             <div class="preview-container" id="previewContainer"></div>
             <div class="form-group" style="margin-top: 20px;">
@@ -1937,6 +1956,8 @@
             <button class="btn btn-primary" style="width: 100%; justify-content: center; margin-top: 10px;" id="addMediaBtn" disabled>
                 <i class="fas fa-plus"></i> Agregar a Galería
             </button>
+            <button class="btn btn-outline" style="width:100%;justify-content:center;margin-top:12px;" id="importLocalBtn" type="button">Importar contenidos locales (opcional)</button>
+            <p style="font-size:.72rem;color:rgba(255,255,255,.45);margin-top:8px;">Solo se ejecuta al pulsar y confirmar; no elimina datos del navegador.</p>
         </div>
 
         <div class="admin-section" id="tab-events">
@@ -1979,6 +2000,7 @@
                 <i class="fas fa-calendar-plus"></i> Agregar Evento
             </button>
         </div>
+        </div>
     </div>
 
     <!-- LIGHTBOX -->
@@ -1995,454 +2017,274 @@
         <span id="toastMessage">Acción completada</span>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4"></script>
     <script>
-        // ===== WHATSAPP NUMBER =====
-        const WHATSAPP_NUMBER = '554591213669';
-        const WHATSAPP_LINK = `https://wa.me/${WHATSAPP_NUMBER}`;
-
-        // ===== DATA STORAGE =====
-        let galleryData = JSON.parse(localStorage.getItem('ufanoGallery')) || [
-            { id: 1, type: 'photo', src: '', title: 'Studio Session', gradient: 'linear-gradient(135deg, #8b5cf6, #6d28d9)' },
-            { id: 2, type: 'photo', src: '', title: 'Live Show', gradient: 'linear-gradient(135deg, #06b6d4, #0891b2)' },
-            { id: 3, type: 'photo', src: '', title: 'Behind the Scenes', gradient: 'linear-gradient(135deg, #f43f5e, #e11d48)' },
-            { id: 4, type: 'photo', src: '', title: 'Walden Music', gradient: 'linear-gradient(135deg, #fbbf24, #f59e0b)' }
-        ];
-
-        let eventsData = JSON.parse(localStorage.getItem('ufanoEvents')) || [
-            { id: 1, name: 'Trap Night Caracas', date: '2026-11-15', time: '22:00', location: 'Caracas, Venezuela', venue: 'Club Underground', price: '$25', status: 'upcoming' },
-            { id: 2, name: 'Walden Music Festival', date: '2026-12-01', time: '20:00', location: 'São Paulo, Brasil', venue: 'Arena SP', price: '$40', status: 'upcoming' },
-            { id: 3, name: 'Reggaeton Summer', date: '2026-10-25', time: '21:00', location: 'Maracaibo, Venezuela', venue: 'Beach Club', price: 'Agotado', status: 'soldout' }
-        ];
-
-        let currentFilter = 'all';
-        let currentLightboxIndex = 0;
-        let pendingMedia = null;
-
-        // ===== NAVBAR =====
-        const navbar = document.getElementById('navbar');
-        window.addEventListener('scroll', () => {
-            navbar.classList.toggle('scrolled', window.scrollY > 50);
+        // ===== CONFIGURACIÓN SUPABASE (solo clave publicable; nunca introducir service_role aquí) =====
+        const SUPABASE_URL = 'https://ibwomvsudbsnzowhtyas.supabase.co';
+        const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_RLgFDPdL2RUV3bPS2yrw7g_Pzxq7_uX';
+        const ADMIN_EMAIL = 'maikoldurand2@gmail.com';
+        const AUTH_REDIRECT_URL = 'https://maikoldurand2-ops.github.io/Index.html/';
+        const STORAGE_BUCKET = 'ufano-media';
+        const MAX_FILE_SIZE = 50 * 1024 * 1024;
+        const ALLOWED_MIME = new Set(['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/quicktime','video/webm']);
+        const { createClient } = supabase;
+        const db = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+            auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
         });
 
-        // ===== MOBILE MENU =====
-        const hamburger = document.getElementById('hamburger');
-        const mobileMenu = document.getElementById('mobileMenu');
-        const mobileClose = document.getElementById('mobileClose');
+        const WHATSAPP_NUMBER = '554591213669';
+        const WHATSAPP_LINK = `https://wa.me/${WHATSAPP_NUMBER}`;
+        let galleryData = [], eventsData = [], currentFilter = 'all', currentLightboxIndex = 0;
+        let pendingMedia = null, currentUser = null, isAdmin = false, galleryLoaded = false, eventsLoaded = false;
+        let refreshTimer = null, realtimeChannel = null;
+        const STATIC_GRADIENTS = [
+            'linear-gradient(135deg, #8b5cf6, #6d28d9)',
+            'linear-gradient(135deg, #06b6d4, #0891b2)',
+            'linear-gradient(135deg, #f43f5e, #e11d48)',
+            'linear-gradient(135deg, #fbbf24, #f59e0b)'
+        ];
+        const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        const safeText = value => String(value ?? '');
+        function mediaUrl(item) {
+            if (item.storage_path) {
+                const path = String(item.storage_path).replace(/^\/+/, '');
+                if (!path || path.split('/').some(part => part === '..')) return '';
+                return db.storage.from(STORAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+            }
+            // Solo se admite una URL ya existente de este bucket público.
+            try {
+                const candidate = new URL(String(item.src || ''));
+                const prefix = `${SUPABASE_URL}/storage/v1/object/public/${STORAGE_BUCKET}/`;
+                return candidate.origin === SUPABASE_URL && candidate.href.startsWith(prefix) ? candidate.href : '';
+            } catch (_) { return ''; }
+        }
+        function galleryState(message, kind='loading') {
+            const grid = document.getElementById('galleryGrid');
+            grid.innerHTML = `<div class="data-state ${kind}" role="status">${esc(message)}</div>`;
+        }
+        function eventsState(message, kind='loading') {
+            document.getElementById('eventsGrid').innerHTML = `<div class="data-state ${kind}" role="status">${esc(message)}</div>`;
+        }
 
+        // ===== NAVBAR / MOBILE =====
+        const navbar = document.getElementById('navbar');
+        window.addEventListener('scroll', () => navbar.classList.toggle('scrolled', window.scrollY > 50));
+        const hamburger = document.getElementById('hamburger'), mobileMenu = document.getElementById('mobileMenu');
+        document.getElementById('mobileClose').addEventListener('click', () => mobileMenu.classList.remove('active'));
         hamburger.addEventListener('click', () => mobileMenu.classList.add('active'));
-        mobileClose.addEventListener('click', () => mobileMenu.classList.remove('active'));
         function closeMobile() { mobileMenu.classList.remove('active'); }
 
-        // ===== PARTICLES =====
+        // ===== DECORATIVE PARTICLES =====
         const particlesContainer = document.getElementById('particles');
-        for (let i = 0; i < 40; i++) {
-            const particle = document.createElement('div');
-            particle.classList.add('particle');
-            particle.style.left = Math.random() * 100 + '%';
-            particle.style.animationDuration = (Math.random() * 15 + 10) + 's';
-            particle.style.animationDelay = (Math.random() * 10) + 's';
-            const size = Math.random() * 4 + 2;
-            particle.style.width = size + 'px';
-            particle.style.height = size + 'px';
-            const colors = ['#8b5cf6', '#06b6d4', '#f43f5e', '#fbbf24', '#25D366'];
-            particle.style.background = colors[Math.floor(Math.random() * colors.length)];
-            particlesContainer.appendChild(particle);
+        for (let i=0; i<40; i++) {
+            const p = document.createElement('div'); p.className='particle';
+            p.style.left=`${Math.random()*100}%`; p.style.animationDuration=`${Math.random()*15+10}s`;
+            p.style.animationDelay=`${Math.random()*10}s`; const size=Math.random()*4+2;
+            p.style.width=`${size}px`; p.style.height=`${size}px`;
+            p.style.background=['#8b5cf6','#06b6d4','#f43f5e','#fbbf24','#25D366'][Math.floor(Math.random()*5)];
+            particlesContainer.appendChild(p);
         }
 
-        // ===== GALLERY RENDER =====
+        function filteredGallery() { return currentFilter==='all' ? galleryData : galleryData.filter(item=>item.type===currentFilter); }
         function renderGallery() {
-            const grid = document.getElementById('galleryGrid');
-            grid.innerHTML = '';
-
-            const filtered = currentFilter === 'all' 
-                ? galleryData 
-                : galleryData.filter(item => item.type === currentFilter);
-
-            filtered.forEach((item, index) => {
-                const div = document.createElement('div');
-                div.className = 'gallery-item';
-                div.dataset.index = index;
-
-                let mediaHTML = '';
-                if (item.src) {
-                    if (item.type === 'video') {
-                        mediaHTML = `<video src="${item.src}" muted loop></video>`;
-                    } else {
-                        mediaHTML = `<img src="${item.src}" alt="${item.title}">`;
-                    }
-                } else {
-                    mediaHTML = `<div style="width:100%;height:100%;background:${item.gradient};display:flex;align-items:center;justify-content:center;font-size:3rem;">${item.type === 'video' ? '🎬' : '📸'}</div>`;
-                }
-
-                div.innerHTML = `
-                    ${mediaHTML}
-                    <div class="item-type ${item.type}">
-                        <i class="fas fa-${item.type === 'video' ? 'video' : 'image'}"></i>
-                        ${item.type === 'video' ? 'VIDEO' : 'FOTO'}
-                    </div>
-                    <div class="item-actions">
-                        <button onclick="openLightbox(${index})" title="Ver"><i class="fas fa-expand"></i></button>
-                        <button onclick="deleteMedia(${item.id})" title="Eliminar"><i class="fas fa-trash"></i></button>
-                    </div>
-                    <div class="item-overlay">
-                        <h4 style="font-family: 'Bebas Neue'; font-size: 1.3rem; letter-spacing: 1px;">${item.title}</h4>
-                    </div>
-                `;
-
-                if (item.type === 'video' && item.src) {
-                    const video = div.querySelector('video');
-                    div.addEventListener('mouseenter', () => video.play());
-                    div.addEventListener('mouseleave', () => { video.pause(); video.currentTime = 0; });
-                }
-
-                div.addEventListener('click', (e) => {
-                    if (!e.target.closest('.item-actions')) openLightbox(index);
-                });
-
-                grid.appendChild(div);
+            const grid=document.getElementById('galleryGrid');
+            if (!galleryLoaded) { galleryState('Cargando galería…'); return; }
+            grid.innerHTML=''; const filtered=filteredGallery();
+            if (!filtered.length) grid.innerHTML='<div class="data-state empty">Aún no hay contenido en esta categoría.</div>';
+            filtered.forEach((item,index)=>{
+                const card=document.createElement('div'); card.className='gallery-item';
+                const src=mediaUrl(item), safeType=item.type==='video'?'video':'photo';
+                const placeholder=STATIC_GRADIENTS[index%STATIC_GRADIENTS.length];
+                const media=src ? (safeType==='video' ? `<video src="${esc(src)}" muted loop playsinline></video>` : `<img src="${esc(src)}" alt="${esc(item.title)}">`) : `<div style="width:100%;height:100%;background:${placeholder};display:flex;align-items:center;justify-content:center;font-size:3rem;">${safeType==='video'?'🎬':'📸'}</div>`;
+                card.innerHTML=`${media}<div class="item-type ${safeType}"><i class="fas fa-${safeType==='video'?'video':'image'}"></i> ${safeType==='video'?'VIDEO':'FOTO'}</div><div class="item-actions"><button type="button" class="view-media" title="Ver"><i class="fas fa-expand"></i></button>${isAdmin?'<button type="button" class="delete-media" title="Eliminar"><i class="fas fa-trash"></i></button>':''}</div><div class="item-overlay"><h4 style="font-family:'Bebas Neue';font-size:1.3rem;letter-spacing:1px;">${esc(item.title||'Sin título')}</h4></div>`;
+                card.querySelector('.view-media').addEventListener('click',e=>{e.stopPropagation();openLightbox(index);});
+                const del=card.querySelector('.delete-media'); if(del) del.addEventListener('click',e=>{e.stopPropagation();deleteMedia(item.id);});
+                card.addEventListener('click',e=>{if(!e.target.closest('.item-actions'))openLightbox(index);});
+                const video=card.querySelector('video'); if(video){card.addEventListener('mouseenter',()=>video.play().catch(()=>{}));card.addEventListener('mouseleave',()=>{video.pause();video.currentTime=0;});}
+                grid.appendChild(card);
             });
-
-            const addBtn = document.createElement('div');
-            addBtn.className = 'add-media-btn';
-            addBtn.onclick = openAdmin;
-            addBtn.innerHTML = '<i class="fas fa-plus"></i><span>Agregar</span>';
-            grid.appendChild(addBtn);
+            if (isAdmin) { const add=document.createElement('div');add.className='add-media-btn';add.innerHTML='<i class="fas fa-plus"></i><span>Agregar</span>';add.addEventListener('click',openAdmin);grid.appendChild(add); }
         }
-
-        // ===== EVENTS RENDER =====
         function renderEvents() {
-            const grid = document.getElementById('eventsGrid');
-            grid.innerHTML = '';
-
-            eventsData.forEach(event => {
-                const date = new Date(event.date);
-                const day = date.getDate();
-                const month = date.toLocaleDateString('es', { month: 'short' }).toUpperCase();
-
-                const gradients = [
-                    'linear-gradient(135deg, #8b5cf6, #6d28d9)',
-                    'linear-gradient(135deg, #06b6d4, #0891b2)',
-                    'linear-gradient(135deg, #f43f5e, #e11d48)'
-                ];
-                const gradient = gradients[event.id % gradients.length];
-
-                const card = document.createElement('div');
-                card.className = 'event-card';
-                
-                const whatsappMsg = encodeURIComponent(`Hola Ufano OG! Quiero información sobre el evento: ${event.name} (${event.date})`);
-                
-                card.innerHTML = `
-                    <div class="event-card-image" style="background: ${gradient};">
-                        <div class="event-date-badge">
-                            <div class="day">${day}</div>
-                            <div class="month">${month}</div>
-                        </div>
-                        <div class="event-status ${event.status}">${event.status === 'upcoming' ? 'PRÓXIMO' : 'AGOTADO'}</div>
-                    </div>
-                    <div class="event-card-body">
-                        <h3>${event.name}</h3>
-                        <div class="event-info">
-                            <div class="event-info-item"><i class="fas fa-clock"></i> ${event.time} hrs</div>
-                            <div class="event-info-item"><i class="fas fa-map-marker-alt"></i> ${event.location}</div>
-                            <div class="event-info-item"><i class="fas fa-building"></i> ${event.venue}</div>
-                        </div>
-                        <div class="event-card-footer">
-                            <div class="event-price">${event.price} <small>USD</small></div>
-                            <a href="https://wa.me/${WHATSAPP_NUMBER}?text=${whatsappMsg}" target="_blank" class="btn btn-whatsapp btn-small" ${event.status === 'soldout' ? 'style="opacity:0.5; pointer-events:none;"' : ''}>
-                                <i class="fab fa-whatsapp"></i> ${event.status === 'soldout' ? 'Agotado' : 'Tickets'}
-                            </a>
-                        </div>
-                    </div>
-                `;
+            const grid=document.getElementById('eventsGrid'); if(!eventsLoaded){eventsState('Cargando eventos…');return;}
+            grid.innerHTML=''; if(!eventsData.length){eventsState('No hay eventos publicados por el momento.','empty');return;}
+            eventsData.forEach((item,index)=>{
+                const dt=new Date(`${item.date||''}T00:00:00`), validDate=!Number.isNaN(dt.getTime());
+                const day=validDate?dt.getDate():'—', month=validDate?dt.toLocaleDateString('es',{month:'short'}).toUpperCase():'';
+                const status=item.status==='soldout'?'soldout':'upcoming', gradient=STATIC_GRADIENTS[index%3];
+                const wa=encodeURIComponent(`Hola Ufano OG! Quiero información sobre el evento: ${safeText(item.name)} (${safeText(item.date)})`);
+                const card=document.createElement('div');card.className='event-card';
+                card.innerHTML=`<div class="event-card-image" style="background:${gradient};"><div class="event-date-badge"><div class="day">${esc(day)}</div><div class="month">${esc(month)}</div></div><div class="event-status ${status}">${status==='upcoming'?'PRÓXIMO':'AGOTADO'}</div></div><div class="event-card-body"><h3>${esc(item.name)}</h3><div class="event-info"><div class="event-info-item"><i class="fas fa-clock"></i> ${esc(item.time||'Por confirmar')} hrs</div><div class="event-info-item"><i class="fas fa-map-marker-alt"></i> ${esc(item.location)}</div><div class="event-info-item"><i class="fas fa-building"></i> ${esc(item.venue)}</div></div><div class="event-card-footer"><div class="event-price">${esc(item.price||'TBA')} <small>USD</small></div><a href="https://wa.me/${WHATSAPP_NUMBER}?text=${wa}" target="_blank" rel="noopener noreferrer" class="btn btn-whatsapp btn-small" ${status==='soldout'?'style="opacity:0.5;pointer-events:none;"':''}><i class="fab fa-whatsapp"></i> ${status==='soldout'?'Agotado':'Tickets'}</a></div></div>`;
                 grid.appendChild(card);
             });
         }
 
-        // ===== FILTER BUTTONS =====
-        document.querySelectorAll('.filter-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                currentFilter = btn.dataset.filter;
-                renderGallery();
-            });
-        });
-
-        // ===== ADMIN PANEL =====
-        const adminFab = document.getElementById('adminFab');
-        const adminPanel = document.getElementById('adminPanel');
-        const adminOverlay = document.getElementById('adminOverlay');
-        const adminClose = document.getElementById('adminClose');
-
-        function openAdmin() {
-            adminPanel.classList.add('active');
-            adminOverlay.classList.add('active');
+        async function loadGallery() {
+            if(!galleryLoaded)galleryState('Cargando galería…');
+            const {data,error}=await db.from('gallery').select('id,type,src,title,gradient,storage_path,created_at').order('created_at',{ascending:false}).order('id',{ascending:true});
+            if(error){if(!galleryLoaded)galleryState('No se pudo cargar la galería. Comprueba la conexión e inténtalo de nuevo.','error');showToast('Error al actualizar galería: '+error.message);return false;}
+            galleryData=data||[];galleryLoaded=true;renderGallery();return true;
         }
-
-        function closeAdmin() {
-            adminPanel.classList.remove('active');
-            adminOverlay.classList.remove('active');
+        async function loadEvents() {
+            if(!eventsLoaded)eventsState('Cargando eventos…');
+            const {data,error}=await db.from('events').select('id,name,date,time,location,venue,price,status,created_at').order('created_at',{ascending:false}).order('id',{ascending:true});
+            if(error){if(!eventsLoaded)eventsState('No se pudieron cargar los eventos. Comprueba la conexión e inténtalo de nuevo.','error');showToast('Error al actualizar eventos: '+error.message);return false;}
+            eventsData=data||[];eventsLoaded=true;renderEvents();return true;
         }
+        async function refreshPublicData(){await Promise.all([loadGallery(),loadEvents()]);}
+        document.querySelectorAll('.filter-btn').forEach(btn=>btn.addEventListener('click',()=>{
+            document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');currentFilter=btn.dataset.filter;renderGallery();
+        }));
 
-        adminFab.addEventListener('click', openAdmin);
-        adminClose.addEventListener('click', closeAdmin);
-        adminOverlay.addEventListener('click', closeAdmin);
-
-        document.querySelectorAll('.admin-tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.admin-section').forEach(s => s.classList.remove('active'));
-                tab.classList.add('active');
-                document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
-            });
-        });
-
-        // ===== FILE UPLOAD =====
-        const uploadZone = document.getElementById('uploadZone');
-        const fileInput = document.getElementById('fileInput');
-        const previewContainer = document.getElementById('previewContainer');
-        const addMediaBtn = document.getElementById('addMediaBtn');
-
-        uploadZone.addEventListener('click', () => fileInput.click());
-
-        uploadZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadZone.style.borderColor = 'var(--primary)';
-            uploadZone.style.background = 'rgba(139, 92, 246, 0.1)';
-        });
-
-        uploadZone.addEventListener('dragleave', () => {
-            uploadZone.style.borderColor = 'rgba(139, 92, 246, 0.3)';
-            uploadZone.style.background = 'transparent';
-        });
-
-        uploadZone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadZone.style.borderColor = 'rgba(139, 92, 246, 0.3)';
-            uploadZone.style.background = 'transparent';
-            handleFile(e.dataTransfer.files[0]);
-        });
-
-        fileInput.addEventListener('change', (e) => {
-            if (e.target.files[0]) handleFile(e.target.files[0]);
-        });
-
-        function handleFile(file) {
-            if (!file) return;
-            const isVideo = file.type.startsWith('video/');
-            const isImage = file.type.startsWith('image/');
-
-            if (!isVideo && !isImage) {
-                showToast('Formato no soportado');
-                return;
+        // ===== SUPABASE AUTH & ADMIN AUTHORIZATION =====
+        const adminFab=document.getElementById('adminFab'), adminPanel=document.getElementById('adminPanel'), adminOverlay=document.getElementById('adminOverlay');
+        function openAdmin(){adminPanel.classList.add('active');adminOverlay.classList.add('active');}
+        function closeAdmin(){adminPanel.classList.remove('active');adminOverlay.classList.remove('active');}
+        adminFab.addEventListener('click',openAdmin);document.getElementById('adminClose').addEventListener('click',closeAdmin);adminOverlay.addEventListener('click',closeAdmin);
+        async function verifyAdmin() {
+            isAdmin=false;
+            if(currentUser && currentUser.email===ADMIN_EMAIL && currentUser.email_confirmed_at){
+                const {data,error}=await db.rpc('is_ufano_admin');
+                isAdmin=!error && data===true;
             }
+            document.getElementById('adminLoginForm').hidden=!!currentUser;
+            document.getElementById('adminLogoutBtn').hidden=!currentUser;
+            document.getElementById('adminIdentity').textContent=currentUser?`Sesión: ${currentUser.email}${isAdmin?' · Administrador':' · Sin permisos de escritura'}`:'Inicia sesión con el correo administrador verificado.';
+            document.getElementById('adminContent').hidden=!isAdmin;
+            document.getElementById('adminDenied').hidden=!currentUser||isAdmin;
+            renderGallery();
+            if(currentUser && currentUser.email!==ADMIN_EMAIL) showToast('Este panel solo admite el correo administrador autorizado.');
+            if(currentUser && !isAdmin) showToast('La cuenta no tiene permisos de administrador verificados.');
+        }
+        document.getElementById('adminLoginForm').addEventListener('submit',async e=>{
+            e.preventDefault();const button=document.getElementById('sendMagicLink');button.disabled=true;
+            const {error}=await db.auth.signInWithOtp({email:ADMIN_EMAIL,options:{shouldCreateUser:true,emailRedirectTo:AUTH_REDIRECT_URL}});
+            button.disabled=false;showToast(error?`No se pudo enviar el enlace: ${error.message}`:'Enlace mágico enviado al correo administrador.');
+        });
+        document.getElementById('adminLogoutBtn').addEventListener('click',async()=>{const {error}=await db.auth.signOut();if(error)showToast('No se pudo cerrar sesión: '+error.message);});
+        document.querySelectorAll('.admin-tab').forEach(tab=>tab.addEventListener('click',()=>{
+            document.querySelectorAll('.admin-tab').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.admin-section').forEach(s=>s.classList.remove('active'));
+            tab.classList.add('active');document.getElementById('tab-'+tab.dataset.tab).classList.add('active');
+        }));
 
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                pendingMedia = {
-                    type: isVideo ? 'video' : 'photo',
-                    src: e.target.result,
-                    title: ''
-                };
+        // ===== FILE UPLOAD TO PUBLIC STORAGE =====
+        const uploadZone=document.getElementById('uploadZone'),fileInput=document.getElementById('fileInput'),previewContainer=document.getElementById('previewContainer'),addMediaBtn=document.getElementById('addMediaBtn');
+        uploadZone.addEventListener('click',()=>{if(isAdmin)fileInput.click();});
+        uploadZone.addEventListener('dragover',e=>{e.preventDefault();uploadZone.style.borderColor='var(--primary)';});
+        uploadZone.addEventListener('dragleave',()=>uploadZone.style.borderColor='rgba(139, 92, 246, 0.3)');
+        uploadZone.addEventListener('drop',e=>{e.preventDefault();uploadZone.style.borderColor='rgba(139, 92, 246, 0.3)';if(isAdmin)handleFile(e.dataTransfer.files[0]);});
+        fileInput.addEventListener('change',e=>handleFile(e.target.files[0]));
+        function fileFromDataUrl(dataUrl) {
+            const match=/^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl||''));
+            if(!match)throw new Error('El contenido guardado no es una data URL base64 válida.');
+            const mime=match[1];if(!ALLOWED_MIME.has(mime))throw new Error(`Tipo no admitido: ${mime}`);
+            const binary=atob(match[2]),bytes=new Uint8Array(binary.length);for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+            return new File([bytes],`import.${extensionForMime(mime)}`,{type:mime});
+        }
+        function extensionForMime(mime){return ({'image/jpeg':'jpg','image/png':'png','image/webp':'webp','image/gif':'gif','video/mp4':'mp4','video/quicktime':'mov','video/webm':'webm'})[mime]||'bin';}
+        function validateFile(file){if(!file||!ALLOWED_MIME.has(file.type))throw new Error('Tipo no permitido. Aceptados: JPEG, PNG, WebP, GIF, MP4, QuickTime/MOV y WebM.');if(file.size>MAX_FILE_SIZE)throw new Error('El archivo supera el máximo permitido de 50 MB.');}
+        function previewFile(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(new Error('No se pudo leer el archivo.'));reader.readAsDataURL(file);});}
+        async function handleFile(file){
+            if(!isAdmin)return;try{validateFile(file);const dataUrl=await previewFile(file);pendingMedia={file,type:file.type.startsWith('video/')?'video':'photo'};
+                previewContainer.innerHTML=pendingMedia.type==='video'?`<video src="${esc(dataUrl)}" controls style="max-height:200px;"></video>`:`<img src="${esc(dataUrl)}" alt="Vista previa">`;
+                addMediaBtn.disabled=false;showToast('Archivo validado. Agrega un título y guárdalo.');
+            }catch(err){pendingMedia=null;addMediaBtn.disabled=true;showToast(err.message);}
+        }
+        async function uploadAndInsert(file,metadata){
+            validateFile(file);if(!isAdmin)throw new Error('No autorizado.');
+            const path=`${Date.now()}-${crypto.randomUUID()}.${extensionForMime(file.type)}`;
+            const {error:uploadError}=await db.storage.from(STORAGE_BUCKET).upload(path,file,{contentType:file.type,upsert:false,cacheControl:'3600'});
+            if(uploadError)throw uploadError;
+            const record={id:Date.now(),...metadata,storage_path:path,src:''};
+            const {error:insertError}=await db.from('gallery').insert(record);
+            if(insertError){const {error:cleanupError}=await db.storage.from(STORAGE_BUCKET).remove([path]);if(cleanupError)console.error('No se pudo limpiar el objeto tras fallo de insert:',cleanupError);throw insertError;}
+            return record;
+        }
+        addMediaBtn.addEventListener('click',async()=>{
+            if(!pendingMedia||!isAdmin)return;addMediaBtn.disabled=true;
+            try{
+                const title=document.getElementById('mediaTitle').value.trim()||'Sin título';
+                await uploadAndInsert(pendingMedia.file,{type:pendingMedia.type,title,gradient:STATIC_GRADIENTS[0]});
+                pendingMedia=null;document.getElementById('mediaTitle').value='';previewContainer.innerHTML='';fileInput.value='';
+                await loadGallery();showToast('Contenido guardado en Supabase y Storage.');closeAdmin();
+            }catch(err){showToast('No se pudo guardar: '+err.message);addMediaBtn.disabled=false;}
+        });
+        async function deleteMedia(id){
+            if(!isAdmin||!confirm('¿Eliminar este contenido y su archivo asociado?'))return;
+            const item=galleryData.find(x=>String(x.id)===String(id));if(!item)return;
+            const {error}=await db.from('gallery').delete().eq('id',id);if(error){showToast('No se pudo eliminar: '+error.message);return;}
+            // La fila solo se considera borrada tras confirmar el DELETE; se retira su objeto después.
+            await loadGallery();
+            if(item.storage_path){const {error:storageError}=await db.storage.from(STORAGE_BUCKET).remove([item.storage_path]);if(storageError)showToast('Fila eliminada, pero no se pudo borrar el archivo Storage (posible objeto huérfano): '+storageError.message);else showToast('Contenido y archivo eliminados.');}
+            else showToast('Contenido eliminado.');
+        }
 
-                if (isVideo) {
-                    previewContainer.innerHTML = `<video src="${e.target.result}" controls style="max-height: 200px;"></video>`;
-                } else {
-                    previewContainer.innerHTML = `<img src="${e.target.result}" alt="Preview">`;
+        // ===== ADD EVENT (write only after server confirms) =====
+        document.getElementById('addEventBtn').addEventListener('click',async()=>{
+            if(!isAdmin)return;const val=id=>document.getElementById(id).value.trim();
+            const name=val('eventName'),date=val('eventDate'),time=val('eventTime'),location=val('eventLocation');
+            if(!name||!date||!location){showToast('Completa nombre, fecha y ubicación.');return;}
+            const btn=document.getElementById('addEventBtn');btn.disabled=true;
+            const {error}=await db.from('events').insert({id:Date.now(),name,date,time,location,venue:val('eventVenue'),price:val('eventPrice')||'TBA',status:document.getElementById('eventStatus').value});
+            btn.disabled=false;if(error){showToast('No se pudo guardar el evento: '+error.message);return;}
+            ['eventName','eventDate','eventTime','eventLocation','eventVenue','eventPrice'].forEach(id=>document.getElementById(id).value='');
+            await loadEvents();showToast('Evento guardado en Supabase.');closeAdmin();
+        });
+
+        // Importación deliberada localStorage -> Supabase, solo cuenta autorizada, sin borrar el navegador.
+        document.getElementById('importLocalBtn').addEventListener('click',async()=>{
+            if(!isAdmin)return;
+            const hasGallery=localStorage.getItem('ufanoGallery')!==null,hasEvents=localStorage.getItem('ufanoEvents')!==null;
+            if(!hasGallery&&!hasEvents){showToast('No se encontraron contenidos locales para importar.');return;}
+            if(!confirm('Importar contenidos locales a Supabase. Esto NO borrará localStorage y puede crear duplicados. ¿Continuar?'))return;
+            let imported=0,failed=0;
+            try{
+                if(hasGallery){let oldGallery=JSON.parse(localStorage.getItem('ufanoGallery'));if(!Array.isArray(oldGallery))throw new Error('ufanoGallery no contiene una lista válida.');
+                    for(const old of oldGallery){try{
+                        const raw=String(old.src||'');let file;
+                        if(raw.startsWith('data:'))file=fileFromDataUrl(raw);
+                        else if(old.storage_path && mediaUrl(old)){const response=await fetch(mediaUrl(old));if(!response.ok)throw new Error('No se pudo recuperar el archivo existente.');file=new File([await response.blob()],`import.${extensionForMime(response.headers.get('content-type'))}`,{type:response.headers.get('content-type')});}
+                        else throw new Error('El elemento no contiene data URL ni un archivo del bucket soportado.');
+                        await uploadAndInsert(file,{type:file.type.startsWith('video/')?'video':'photo',title:String(old.title||'Sin título'),gradient:STATIC_GRADIENTS[0]});imported++;
+                    }catch(err){failed++;console.warn('Elemento local omitido:',err);}}
                 }
-
-                addMediaBtn.disabled = false;
-                showToast('Archivo cargado. Agrega un título y presiona "Agregar"');
-            };
-            reader.readAsDataURL(file);
-        }
-
-        addMediaBtn.addEventListener('click', () => {
-            if (!pendingMedia) return;
-            pendingMedia.title = document.getElementById('mediaTitle').value || 'Sin título';
-            pendingMedia.id = Date.now();
-            pendingMedia.gradient = `linear-gradient(135deg, hsl(${Math.random()*360}, 70%, 50%), hsl(${Math.random()*360}, 70%, 40%))`;
-
-            galleryData.unshift(pendingMedia);
-            localStorage.setItem('ufanoGallery', JSON.stringify(galleryData));
-
-            pendingMedia = null;
-            document.getElementById('mediaTitle').value = '';
-            previewContainer.innerHTML = '';
-            addMediaBtn.disabled = true;
-            fileInput.value = '';
-
-            renderGallery();
-            showToast('✅ Contenido agregado exitosamente');
-            closeAdmin();
+                if(hasEvents){let oldEvents=JSON.parse(localStorage.getItem('ufanoEvents'));if(!Array.isArray(oldEvents))throw new Error('ufanoEvents no contiene una lista válida.');
+                    for(const old of oldEvents){const {error}=await db.from('events').insert({id:Date.now()+imported+failed,name:String(old.name||''),date:String(old.date||''),time:String(old.time||''),location:String(old.location||''),venue:String(old.venue||''),price:String(old.price||'TBA'),status:old.status==='soldout'?'soldout':'upcoming'});if(error){failed++;console.warn('Evento local omitido:',error);}else imported++;}
+                }
+                await refreshPublicData();showToast(`Importación terminada: ${imported} importados, ${failed} omitidos. Los datos locales siguen intactos.`);
+            }catch(err){showToast('Importación interrumpida: '+err.message);}
         });
 
-        function deleteMedia(id) {
-            if (!confirm('¿Eliminar este contenido?')) return;
-            galleryData = galleryData.filter(item => item.id !== id);
-            localStorage.setItem('ufanoGallery', JSON.stringify(galleryData));
-            renderGallery();
-            showToast('🗑️ Contenido eliminado');
-        }
-
-        // ===== ADD EVENT =====
-        document.getElementById('addEventBtn').addEventListener('click', () => {
-            const name = document.getElementById('eventName').value;
-            const date = document.getElementById('eventDate').value;
-            const time = document.getElementById('eventTime').value;
-            const location = document.getElementById('eventLocation').value;
-            const venue = document.getElementById('eventVenue').value;
-            const price = document.getElementById('eventPrice').value;
-            const status = document.getElementById('eventStatus').value;
-
-            if (!name || !date || !location) {
-                showToast('⚠️ Completa los campos obligatorios');
-                return;
-            }
-
-            eventsData.unshift({
-                id: Date.now(),
-                name, date, time, location, venue, price: price || 'TBA', status
-            });
-
-            localStorage.setItem('ufanoEvents', JSON.stringify(eventsData));
-
-            document.getElementById('eventName').value = '';
-            document.getElementById('eventDate').value = '';
-            document.getElementById('eventTime').value = '';
-            document.getElementById('eventLocation').value = '';
-            document.getElementById('eventVenue').value = '';
-            document.getElementById('eventPrice').value = '';
-
-            renderEvents();
-            showToast('✅ Evento agregado exitosamente');
-            closeAdmin();
-        });
-
-        // ===== BOOKING FORM -> WHATSAPP =====
-        function handleBooking(e) {
-            e.preventDefault();
-            
-            const name = document.getElementById('bookName').value;
-            const email = document.getElementById('bookEmail').value;
-            const type = document.getElementById('bookType').value;
-            const date = document.getElementById('bookDate').value;
-            const location = document.getElementById('bookLocation').value;
-            const message = document.getElementById('bookMessage').value;
-
-            let whatsappText = `🎤 *SOLICITUD DE BOOKING - UFANO OG*\n\n`;
-            whatsappText += `👤 *Nombre:* ${name}\n`;
-            if (email) whatsappText += `📧 *Email:* ${email}\n`;
-            whatsappText += ` *Tipo de Evento:* ${type}\n`;
-            whatsappText += `📅 *Fecha:* ${date}\n`;
-            whatsappText += ` *Ubicación:* ${location}\n`;
-            if (message) whatsappText += `💬 *Mensaje:* ${message}\n`;
-            whatsappText += `\n_Enviado desde la página web_`;
-
-            const encodedText = encodeURIComponent(whatsappText);
-            const whatsappUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodedText}`;
-
-            window.open(whatsappUrl, '_blank');
-            showToast('✅ Redirigiendo a WhatsApp...');
-            e.target.reset();
-        }
+        // ===== BOOKING -> WHATSAPP =====
+        function handleBooking(e){e.preventDefault();const v=id=>document.getElementById(id).value;let text=`🎤 *SOLICITUD DE BOOKING - UFANO OG*\n\n👤 *Nombre:* ${v('bookName')}\n`;
+            if(v('bookEmail'))text+=`📧 *Email:* ${v('bookEmail')}\n`;text+=` *Tipo de Evento:* ${v('bookType')}\n📅 *Fecha:* ${v('bookDate')}\n *Ubicación:* ${v('bookLocation')}\n`;
+            if(v('bookMessage'))text+=`💬 *Mensaje:* ${v('bookMessage')}\n`;text+='\n_Enviado desde la página web_';window.open(`${WHATSAPP_LINK}?text=${encodeURIComponent(text)}`,'_blank','noopener');showToast('Redirigiendo a WhatsApp…');e.target.reset();}
 
         // ===== LIGHTBOX =====
-        const lightbox = document.getElementById('lightbox');
-        const lightboxContent = document.getElementById('lightboxContent');
+        const lightbox=document.getElementById('lightbox'),lightboxContent=document.getElementById('lightboxContent');
+        function openLightbox(index){const items=filteredGallery();if(!items.length)return;currentLightboxIndex=index;const item=items[index],src=mediaUrl(item);lightboxContent.innerHTML='';
+            if(src){const media=document.createElement(item.type==='video'?'video':'img');media.src=src;if(item.type==='video'){media.controls=true;media.autoplay=true;media.style.maxWidth='90vw';media.style.maxHeight='90vh';}else media.alt=safeText(item.title);lightboxContent.appendChild(media);}
+            else{const placeholder=document.createElement('div');placeholder.style.cssText=`width:80vw;height:60vh;background:${STATIC_GRADIENTS[index%STATIC_GRADIENTS.length]};display:flex;align-items:center;justify-content:center;font-size:5rem;border-radius:10px;`;placeholder.textContent=item.type==='video'?'🎬':'📸';lightboxContent.appendChild(placeholder);}
+            lightbox.classList.add('active');}
+        function closeLightbox(){lightbox.classList.remove('active');lightboxContent.innerHTML='';}
+        document.getElementById('lightboxClose').addEventListener('click',closeLightbox);
+        document.getElementById('lightboxPrev').addEventListener('click',()=>{const items=filteredGallery();if(items.length)openLightbox((currentLightboxIndex-1+items.length)%items.length);});
+        document.getElementById('lightboxNext').addEventListener('click',()=>{const items=filteredGallery();if(items.length)openLightbox((currentLightboxIndex+1)%items.length);});
+        lightbox.addEventListener('click',e=>{if(e.target===lightbox)closeLightbox();});
 
-        function openLightbox(index) {
-            const filtered = currentFilter === 'all' 
-                ? galleryData 
-                : galleryData.filter(item => item.type === currentFilter);
-            
-            currentLightboxIndex = index;
-            const item = filtered[index];
+        function showToast(message){const toast=document.getElementById('toast');document.getElementById('toastMessage').textContent=message;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),4500);}
+        const revealObserver=new IntersectionObserver(entries=>entries.forEach(entry=>{if(entry.isIntersecting)entry.target.classList.add('active');}),{threshold:0.15});
+        document.querySelectorAll('.reveal').forEach(el=>revealObserver.observe(el));
+        document.querySelectorAll('a[href^="#"]').forEach(anchor=>anchor.addEventListener('click',function(e){const href=this.getAttribute('href');if(href&&href.length>1){e.preventDefault();document.querySelector(href)?.scrollIntoView({behavior:'smooth',block:'start'});}}));
+        document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeLightbox();closeAdmin();closeMobile();}if(lightbox.classList.contains('active')){if(e.key==='ArrowLeft')document.getElementById('lightboxPrev').click();if(e.key==='ArrowRight')document.getElementById('lightboxNext').click();}});
 
-            if (item.src) {
-                if (item.type === 'video') {
-                    lightboxContent.innerHTML = `<video src="${item.src}" controls autoplay style="max-width: 90vw; max-height: 90vh;"></video>`;
-                } else {
-                    lightboxContent.innerHTML = `<img src="${item.src}" alt="${item.title}">`;
-                }
-            } else {
-                lightboxContent.innerHTML = `<div style="width: 80vw; height: 60vh; background: ${item.gradient}; display: flex; align-items: center; justify-content: center; font-size: 5rem; border-radius: 10px;">${item.type === 'video' ? '🎬' : '📸'}</div>`;
-            }
-
-            lightbox.classList.add('active');
-        }
-
-        document.getElementById('lightboxClose').addEventListener('click', () => {
-            lightbox.classList.remove('active');
-            lightboxContent.innerHTML = '';
-        });
-
-        document.getElementById('lightboxPrev').addEventListener('click', () => {
-            const filtered = currentFilter === 'all' ? galleryData : galleryData.filter(item => item.type === currentFilter);
-            currentLightboxIndex = (currentLightboxIndex - 1 + filtered.length) % filtered.length;
-            openLightbox(currentLightboxIndex);
-        });
-
-        document.getElementById('lightboxNext').addEventListener('click', () => {
-            const filtered = currentFilter === 'all' ? galleryData : galleryData.filter(item => item.type === currentFilter);
-            currentLightboxIndex = (currentLightboxIndex + 1) % filtered.length;
-            openLightbox(currentLightboxIndex);
-        });
-
-        lightbox.addEventListener('click', (e) => {
-            if (e.target === lightbox) {
-                lightbox.classList.remove('active');
-                lightboxContent.innerHTML = '';
-            }
-        });
-
-        // ===== TOAST =====
-        function showToast(message) {
-            const toast = document.getElementById('toast');
-            document.getElementById('toastMessage').textContent = message;
-            toast.classList.add('show');
-            setTimeout(() => toast.classList.remove('show'), 3000);
-        }
-
-        // ===== REVEAL ON SCROLL =====
-        const reveals = document.querySelectorAll('.reveal');
-        const revealObserver = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) entry.target.classList.add('active');
-            });
-        }, { threshold: 0.15 });
-
-        reveals.forEach(el => revealObserver.observe(el));
-
-        // ===== SMOOTH SCROLL =====
-        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-            anchor.addEventListener('click', function(e) {
-                const href = this.getAttribute('href');
-                if (href.startsWith('#') && href.length > 1) {
-                    e.preventDefault();
-                    const target = document.querySelector(href);
-                    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-            });
-        });
-
-        // ===== KEYBOARD SHORTCUTS =====
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                lightbox.classList.remove('active');
-                lightboxContent.innerHTML = '';
-                closeAdmin();
-                closeMobile();
-            }
-            if (lightbox.classList.contains('active')) {
-                if (e.key === 'ArrowLeft') document.getElementById('lightboxPrev').click();
-                if (e.key === 'ArrowRight') document.getElementById('lightboxNext').click();
-            }
-        });
-
-        // ===== INIT =====
-        renderGallery();
-        renderEvents();
+        // Auth event updates roles; public data uses realtime plus visible-only polling and focus refresh.
+        db.auth.onAuthStateChange((_event,session)=>{currentUser=session?.user||null;setTimeout(()=>verifyAdmin(),0);});
+        async function initAuth(){const {data,error}=await db.auth.getSession();if(error)showToast('No se pudo recuperar la sesión: '+error.message);currentUser=data?.session?.user||null;await verifyAdmin();}
+        realtimeChannel=db.channel('ufano-public-data').on('postgres_changes',{event:'*',schema:'public',table:'gallery'},()=>loadGallery()).on('postgres_changes',{event:'*',schema:'public',table:'events'},()=>loadEvents()).subscribe(status=>{if(status==='CHANNEL_ERROR'||status==='TIMED_OUT')console.warn('Supabase Realtime no disponible; se mantiene polling.');});
+        function syncPolling(){if(refreshTimer){clearInterval(refreshTimer);refreshTimer=null;}if(document.visibilityState==='visible')refreshTimer=setInterval(refreshPublicData,30000);}
+        document.addEventListener('visibilitychange',syncPolling);window.addEventListener('focus',()=>{if(document.visibilityState==='visible')refreshPublicData();});syncPolling();
+        galleryState('Cargando galería…');eventsState('Cargando eventos…');refreshPublicData();initAuth();
     </script>
 </body>
 </html>
